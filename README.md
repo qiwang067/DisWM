@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 3) Install Distracting Control Suite and dmc2gym. The `distracting_control` folder contains the [Distracting Control Suite](https://github.com/sahandrez/distracting_control) code with modification to create disjoint colour sets. The `dmc2gym` folder contains the [dmc2gym](https://github.com/denisyarats/dmc2gym) code revised to use the distracting_control wrappers.
 
-4) Collect distracting video datasets with DreamerV2 on DMC/MuJoCo Pusher. The complete distracting videos will be released upon acceptance.
+4) Collect distracting video datasets with DreamerV2 on DMC/MuJoCo Pusher. 
 
 ## Train DisWM on DMC / MuJoCo Pusher
 1. Pretrain the video prediction model with collected videos on DMC:  
