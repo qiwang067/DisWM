@@ -5,7 +5,6 @@ from torch.autograd import Variable
 import tools
 from torch import distributions as torchd
 
-
 def reparametrize(mu, logvar):
     std = logvar.div(2).exp()
     eps = Variable(std.data.new(std.size()).normal_())
