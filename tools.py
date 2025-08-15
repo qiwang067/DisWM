@@ -8,11 +8,8 @@ import time
 import uuid
 from pprint import pprint
 import wandb
-
 import numpy as np
-
 import torch
-# from caffe2.perfkernels.hp_emblookup_codegen import sizeof
 from torch import nn
 from torch.nn import functional as F
 from torch import distributions as torchd
@@ -89,7 +86,7 @@ class Logger:
         value = np.clip(255 * value, 0, 255).astype(np.uint8)
       B, T, H, W, C = value.shape
       value = value.transpose(1, 4, 2, 0, 3).reshape((1, T, C, H, B*W))
-      wandb.log({f'Videos/videos/{name}': wandb.Video(value, fps=16, format="mp4"), f'scalars/custom_step': self.step})
+      # wandb.log({f'Videos/videos/{name}': wandb.Video(value, fps=16, format="mp4"), f'scalars/custom_step': self.step})
       self._writer.add_video(name, value, self.step, 16)
 
     self._writer.flush()
@@ -731,4 +728,74 @@ class StreamNorm(nn.Module):
     values /= self.mag.to(inputs.dtype)[None] + self._eps
     values *= self._scale
     return values.reshape(inputs.shape)
+  
+
+def evaluate_score(agent, envs, save_dir, steps=0, episodes=10, logger=None, start_wall_time=None, state=None):
+    # Initialize or unpack simulation state.
+    rewards = []  
+    succs = []
+    if state is None:
+        step, episode = 0, 0
+        done = np.ones(len(envs), np.bool_)
+        length = np.zeros(len(envs), np.int32)
+        obs = [None] * len(envs)
+        agent_state = None
+        reward = [0] * len(envs)
+    else:
+        step, episode, done, length, obs, agent_state, reward = state
+    tmp_reward = 0
+    tmp_succ = 0
+    while episodes and episode < episodes:
+        # Reset envs if necessary.
+        if done.any():
+            rewards.append(tmp_reward)
+            succs.append(float(tmp_succ >= 1.0))
+            tmp_reward = 0
+            tmp_succ = 0
+            indices = [index for index, d in enumerate(done) if d]
+            results = [envs[i].reset() for i in indices]
+            for index, result in zip(indices, results):
+                obs[index] = result
+            reward = [reward[i] * (1 - done[i]) for i in range(len(envs))]
+        # Step agents.
+        # print(obs)
+        obs = {k: np.stack([o[k] for o in obs]) for k in obs[0]}
+        action, agent_state = agent(obs, done, agent_state, reward)
+        if isinstance(action, dict):
+            action = [
+                {k: np.array(action[k][i].detach().cpu()) for k in action}
+                for i in range(len(envs))]
+        else:
+            action = np.array(action)
+        assert len(action) == len(envs)
+        # Step envs.
+        results = [e.step(a) for e, a in zip(envs, action)]
+        obs, reward, done, info = zip(*[p[:4] for p in results])
+        succ = info[0]['success']
+        
+        obs = list(obs)
+        reward = list(reward)
+        tmp_reward += sum(reward)
+        tmp_succ += succ
+        done = np.stack(done)
+        episode += int(done.sum())
+        length += 1
+        step += (done * length).sum()
+        length *= (1 - done)
+    
+    rewards.append(tmp_reward)
+    succs.append(float(tmp_succ >= 1.0))
+    del rewards[0]
+    del succs[0]
+    
+    end_wall_time = time.time()
+    duration_hours = (end_wall_time - start_wall_time)/3600
+    print(f'succ_rate:', np.mean(succs))
+
+    wandb.log({f'scalars/succ_rate':np.mean(succs) ,f'scalars/custom_step': logger.step})
+    
+    # wandb.log({'return':round(np.mean(rewards),0),'std':round(np.std(rewards),0), 'succ_rate':np.mean(succs),'wall_minutes':duration_hours, f'scalars/custom_step': logger.step}) # 
+    f = open(f"{save_dir}/score.txt", "a")
+    f.writelines(str(duration_hours)+","+str(np.mean(rewards)) + "+-" + str(np.std(rewards)) + "\n")
+    f.close()
 

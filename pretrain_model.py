@@ -1,7 +1,5 @@
 from time import process_time_ns
-
 import torch
-# from caffe2.python.fakelowp.test_utils import print_net
 from numpy.ma.core import shape
 from numpy.testing.print_coercion_tables import print_new_cast_table
 from torch import nn
@@ -9,11 +7,9 @@ import numpy as np
 from PIL import ImageColor, Image, ImageDraw, ImageFont
 from torch.autograd import Variable
 from torch.fx.experimental.migrate_gradual_types.operation import op_neq
-
 import pretrain_networks as networks
 import tools
 to_np = lambda x: x.detach().cpu().numpy()
-
 import beta_vae
 import torch.nn.functional as F
 import wandb

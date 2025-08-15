@@ -5,27 +5,30 @@ import os
 import pathlib
 import sys
 import warnings
-
-# os.environ['MUJOCO_GL'] = 'egl'
-# os.environ["WANDB_MODE"] = "offline"
-
 import numpy as np
 import ruamel.yaml as yaml
-
-sys.path.append(str(pathlib.Path(__file__).parent))
-
 import exploration as expl
 import models
 import tools
 import wrappers
-
 import torch
 from torch import nn
 from torch import distributions as torchd
-to_np = lambda x: x.detach().cpu().numpy()
-
 import wandb
 import random
+import time
+
+
+
+# Environment Settings
+os.environ['MUJOCO_GL'] = 'egl'
+# os.environ["WANDB_MODE"] = "offline"
+
+sys.path.append(str(pathlib.Path(__file__).parent))
+
+to_np = lambda x: x.detach().cpu().numpy()
+
+
 
 class Dreamer(nn.Module):
 
@@ -75,7 +78,6 @@ class Dreamer(nn.Module):
           self._config.pretrain if self._should_pretrain()
           else self._config.train_steps)
       for _ in range(steps):
-        # print(next(self._dataset))
         self._train(next(self._dataset))
       if self._should_log(step):
         for name, values in self._metrics.items():
@@ -105,18 +107,15 @@ class Dreamer(nn.Module):
     if self._config.naive_fine_tune:
       action = torch.nn.functional.pad(action, (0, self._config.action_num_gap))
 
-    # policy
     if self._config.beta_vae:
       mu, logvar, embed = self._wm.encoder(self._wm.preprocess(obs), pred=False)
       if self._config.fine_tune:
         b, d = embed.shape
         embed = embed.reshape(1, 1, d)
-
         post, prior = self._wm.dynamics_af.observe_action_free(embed)
         embed = self._wm.dynamics_af.get_feat(post)
         b, l, d = embed.shape
         embed = embed.reshape(b, d)
-
     else:
       embed = self._wm.encoder(self._wm.preprocess(obs))
       if self._config.fine_tune:
@@ -128,22 +127,18 @@ class Dreamer(nn.Module):
         b, l, d = embed.shape
         embed = embed.reshape(b, d)
 
-
     if self._config.naive_fine_tune:
       latent, _ = self._wm.dynamics_af.obs_step(
           latent, action, embed, self._config.collect_dyn_sample)
       if self._config.eval_state_mean:
         latent['stoch'] = latent['mean']
       feat = self._wm.dynamics_af.get_feat(latent)
-
     else:
       latent, _ = self._wm.dynamics.obs_step(
           latent, action, embed, self._config.collect_dyn_sample)
       if self._config.eval_state_mean:
         latent['stoch'] = latent['mean']
       feat = self._wm.dynamics.get_feat(latent)
-
-
 
     if not training:
       actor = self._task_behavior.actor(feat)
@@ -263,6 +258,37 @@ def make_env(config, logger, mode, train_eps, eval_eps):
         test = True
     env = wrappers.dmc2gym_wrapper(config, task, test)
     env = wrappers.NormalizeActions(env)
+  elif suite == 'metaworld':
+    # drawerworld env
+    from env.wrappers import make_pad_env
+    if config.color_distractor:
+      if mode == "train_1":
+        texture = 'grid'
+      elif mode == 'train_2':
+        texture = 'wood'
+      else:
+        texture = 'metal'
+      mode = mode[:-2]
+    else:
+      if mode == "train":
+        texture = 'grid'
+      else:
+        texture = 'metal'
+    task = "-".join(task.split("_"))
+    env = make_pad_env(
+      domain_name=suite,
+      task_name=task,
+      seed=config.seed,
+      episode_length=config.episode_length,
+      action_repeat=config.action_repeat,
+      action_factor=config.action_factor,
+      moving_average_denoise=config.moving_average_denoise,
+      moving_average_denoise_factor=config.moving_average_denoise_factor,
+      moving_average_denoise_alpha=config.moving_average_denoise_alpha,
+      exponential_moving_average=config.exponential_moving_average,
+      texture=texture
+    )
+    env = wrappers.NormalizeActions(env)
   else:
     raise NotImplementedError(suite)
   env = wrappers.TimeLimit(env, config.time_limit)
@@ -349,6 +375,7 @@ def main(config):
   if config.async_env == 'none':
     make = lambda mode: make_env(config, logger, mode, train_eps, eval_eps)
     if config.color_distractor:
+      # Make two envs with different color setting.
       train_envs_1 = [make('train_1') for _ in range(config.envs)]
       eval_envs_1 = [make('eval_1') for _ in range(config.envs)]
       train_envs_2 = [make('train_2') for _ in range(config.envs)]
@@ -368,6 +395,7 @@ def main(config):
 
   config.num_actions = acts.n if hasattr(acts, 'n') else acts.shape[0]
 
+  real_start_wall_time = time.time()
   if not config.offline_traindir:
     prefill = max(0, config.prefill - count_steps(config.traindir))
     print(f'Prefill dataset ({prefill} steps).')
@@ -382,7 +410,14 @@ def main(config):
       logprob = random_actor.log_prob(action)
       return {'action': action, 'logprob': logprob}, None
     tools.simulate(random_agent, train_envs, prefill)
-    tools.simulate(random_agent, eval_envs, episodes=10)
+
+    suite, task = config.task.split('_', 1)
+    if suite == 'metaworld':
+      tools.evaluate_score(random_agent, eval_envs, logdir, episodes=10, logger=logger, start_wall_time=real_start_wall_time)
+    else:
+      tools.simulate(random_agent, eval_envs, episodes=10)
+
+
     logger.step = config.action_repeat * count_steps(config.traindir)
 
   print('Simulate agent.')
@@ -394,6 +429,7 @@ def main(config):
     agent.load_state_dict(torch.load(logdir / 'latest_model.pt'))
     agent._should_pretrain._once = False
 
+  # Load checkpoints.
   if config.fine_tune:
     agent._wm.encoder.load_state_dict(torch.load(
       os.path.join(config.pretrain_checkpoint_path, 'encoder.pt')))
@@ -410,11 +446,12 @@ def main(config):
 
 
   state = None
+  switch_signal = 0
   while agent._step < config.steps:
     eval_score = []
     logger.write()
-    # ted env setting
-    if config.color_distractorcolor_distractor:
+    # Color distractor setting.
+    if config.color_distractor:
       print('Start evaluation.')
       video_pred = agent._wm.video_pred(next(eval_dataset))
       logger.video('eval_openl', to_np(video_pred))
@@ -422,25 +459,20 @@ def main(config):
         beta_vae_traverse = agent._wm.traverse(next(eval_dataset))
         logger.video('beta_vae_traverse', to_np(beta_vae_traverse))
       eval_policy = functools.partial(agent, training=False)
-      tools.simulate(eval_policy, eval_envs, episodes=10)
+      
+      if suite == 'metaworld':
+        tools.evaluate_score(eval_policy, eval_envs, logdir, episodes=10, logger=logger, start_wall_time=real_start_wall_time)
+      else:
+        tools.simulate(eval_policy, eval_envs, episodes=10)
       print('Start training.')
       state = tools.simulate(agent, train_envs, config.eval_every, state=state)
       torch.save(agent.state_dict(), logdir / 'latest_model.pt')
-      # Switch to Second Environment
-      if agent._step >= config.steps / 2:
+      # Switch to the second environment.
+      if agent._step >= config.steps / 2 and switch_signal == 0:
+        print('Switching envs...')
         train_envs = train_envs_2
         eval_envs = eval_envs_2
-        print('Start evaluation.')
-        video_pred = agent._wm.video_pred(next(eval_dataset))
-        logger.video('eval_openl', to_np(video_pred))
-        if config.traverse:
-          beta_vae_traverse = agent._wm.traverse(next(eval_dataset))
-          logger.video('beta_vae_traverse', to_np(beta_vae_traverse))
-        eval_policy = functools.partial(agent, training=False)
-        tools.simulate(eval_policy, eval_envs, episodes=10)
-        print('Start training.')
-        state = tools.simulate(agent, train_envs, config.eval_every, state=state)
-        torch.save(agent.state_dict(), logdir / 'latest_model.pt')
+        switch_signal = 1
     else:
       print('Start evaluation.')
       video_pred = agent._wm.video_pred(next(eval_dataset))
@@ -449,7 +481,11 @@ def main(config):
         beta_vae_traverse = agent._wm.traverse(next(eval_dataset))
         logger.video('beta_vae_traverse', to_np(beta_vae_traverse))
       eval_policy = functools.partial(agent, training=False)
-      tools.simulate(eval_policy, eval_envs, episodes=10)
+      if suite == 'metaworld':
+        tools.evaluate_score(eval_policy, eval_envs, logdir, episodes=10, logger=logger, start_wall_time=real_start_wall_time)
+      else:
+        tools.simulate(eval_policy, eval_envs, episodes=10)
+
       print('Start training.')
       state = tools.simulate(agent, train_envs, config.eval_every, state=state)
       torch.save(agent.state_dict(), logdir / 'latest_model.pt')
@@ -473,6 +509,7 @@ if __name__ == '__main__':
   for name in args.configs:
     defaults.update(configs[name])
   parser = argparse.ArgumentParser()
+      # set the wandb project where this run will be logged
   for key, value in sorted(defaults.items(), key=lambda x: x[0]):
     arg_type = tools.args_type(value)
     parser.add_argument(f'--{key}', type=arg_type, default=arg_type(value))
@@ -485,10 +522,7 @@ if __name__ == '__main__':
     print(name)
     wandb.require("core")
     wandb.init(
-      # set the wandb project where this run will be logged
-      project="dis-rl_diswm_pretrain",
-
-      # track hyperparameters and run metadata
+      project="Diswm_pretrain",
       config=configs
     )
     import pretrain
@@ -502,12 +536,9 @@ if __name__ == '__main__':
             + '-seed_' + str(parser.parse_args(remaining).seed) + '-' + str(timestamp))
     wandb.require("core")
     wandb.init(
-      # set the wandb project where this run will be logged
-      project="dis-rl_diswm",
-
+      project="Diswm",
       name=name,
-      # track hyperparameters and run metadata
       config=configs
     )
     main(parser.parse_args(remaining))
-  # main(parser.parse_args(remaining))
+    

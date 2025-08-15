@@ -1,17 +1,19 @@
 import torch
 from torch import nn
 from torch import distributions as torchd
-to_np = lambda x: x.detach().cpu().numpy()
-
 import tools
 import pathlib
 import pretrain_model
-
 import wandb
 import wrappers
 import functools
 import numpy as np
+import random
+import shutil
+import os
 from datetime import datetime
+
+to_np = lambda x: x.detach().cpu().numpy()
 
 class Dreamer(nn.Module):
 
@@ -134,11 +136,28 @@ class Beta_VAE_Pretrain:
     def __init__(self):
         super(Beta_VAE_Pretrain, self).__init__()
 
-    def load_pretrain_episode(self, directory):
+    def load_pretrain_episode(self, directory, scale):
 
-        episodes = tools.load_episodes(directory)
 
-        return episodes
+        if scale != 1:
+            files = os.listdir(directory)
+            print('dataset_size:', int(len(files) * scale))
+            new_directory = os.path.join(directory, str(scale))
+            if not os.path.exists(new_directory):
+                os.mkdir(new_directory)
+            selected_files = random.sample(files, int(len(files) * scale))
+            for file_name in selected_files:
+                source_file_path = os.path.join(directory, file_name)
+                destination_file_path = os.path.join(new_directory, file_name)
+                shutil.copy2(source_file_path, destination_file_path)
+            episodes = tools.load_episodes(new_directory)
+            return episodes, new_directory
+        else:
+            files = os.listdir(directory)
+            print('dataset_size:', int(len(files)))
+            episodes = tools.load_episodes(directory)
+
+            return episodes, directory
 
     def train(self, config):
 
@@ -159,8 +178,8 @@ class Beta_VAE_Pretrain:
 
         print('Load Pre-train Datasets.')
         directory = config.pretrain_datasets_path
+        train_eps, directory = self.load_pretrain_episode(directory, config.pretrain_dataset_scale)
         pretrain_directory = pathlib.Path(directory).expanduser()
-        train_eps = self.load_pretrain_episode(directory)
         pretrain_total_steps = count_steps(pretrain_directory)
         logger = tools.Logger(logdir, config.action_repeat * pretrain_total_steps)
         train_dataset = make_dataset(train_eps, config)

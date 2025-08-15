@@ -20,29 +20,32 @@ defaults:
   # wandb method info
   method_name: null
 
-  # Beta-Vae pretrain
+  # Beta-Vae pretrain settings
   beta_vae_pretrain: False
   pretrain_datasets_path: ''
+  pretrain_dataset_scale: 1
   pretrain_steps: 1e6
-  pretrain_action_num: 0
+  pretrain_action_num: 0 # action number of source task
+
+  # fine-tune
+  fine_tune: False        # DV2 naive fine-tine
+  naive_fine_tune: False  # APV fine-tune
+
 
   # Beta-Vae distillation
   distillation: False
 
-  # Beta-Vae fine-tuning
-  fine_tune: False
-  naive_fine_tune: False
   source_action_num: 0
   action_num_gap: 0
   pretrain_checkpoint_path: './checkpoints'
 
-  # Beta-Vae
+  # Beta-Vae setting
   beta_vae: False
   beta_vae_beta: 0.015
   z_dim: 20
   traverse: False
 
-  # color setting option
+  # color distractor setting
   color_distractor: False
 
   # Cross-domain for dmc to gymnasium
@@ -317,7 +320,7 @@ dmc:
   kl_free: '1.0'
   kl_scale: '1.0'
 
-pusher:
+gymnasium:
   # General
   task: 'pusher_v5'
   steps: 1e6
@@ -347,6 +350,7 @@ pusher:
   actor_layers: 4
 
   # color_setting
+  size: [64, 64]
   max_delta: 0.2
   step_std: 0.1
 
@@ -431,11 +435,29 @@ dmc2gym:
 
   test_difficulty: None
   test_dynamic: False
+
+  # Beta-Vae fine-tun
   test_camera_kwargs: None
   test_colour_kwargs: {'max_delta': 0.2,'step_std': 0.2, 'disjoint_sets': 'test'}
   test_background_kwargs: None
   test_background_dataset_path: "None"
   test_background_dataset_videos: "val"
+
+
+metaworld:
+  action_repeat: 2
+  texture: metal
+  action_factor: 1.0
+  episode_length: 1000
+  moving_average_denoise: False
+  moving_average_denoise_factor: 0.15
+  moving_average_denoise_alpha: 0.2
+  exponential_moving_average: 0.0
+  color_distractor: False
+  frame_stack: 1
+  eval_eps: 10
+  pred_discount: False
+  actor_ent: 1e-4
 
 
 debug:
@@ -446,8 +468,4 @@ debug:
   train_steps: 1
   batch_size: 10
   batch_length: 20
-
-
-
-
 

@@ -1,11 +1,21 @@
-torch==1.13.1
-numpy
-torchvision==0.14.1
-tensorboard==2.5.0
-pandas==1.2.4
+torch==1.8.1
+numpy==1.23.0
+torchvision==0.9.1
+tensorboard==2.18.0
+pandas==1.4.4
 matplotlib==3.4.1
 ruamel.yaml==0.17.4
-gym[atari]==0.25.0
+gym==0.25.2
 moviepy==1.0.3
 einops==0.3.0
-dm_control
+dm_control==1.0.21
+wandb
+pillow
+tensorflow==2.18.0
+gymnasium==1.0.0
+mujoco==3.2.0 # for dmc2gym
+# mujoco==3.2.3 # for drawerworld
+mujoco-py==2.1.2.14
+
+
+

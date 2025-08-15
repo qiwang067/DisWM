@@ -270,7 +270,7 @@ class gymnasium_wrapper:
   @property
   def observation_space(self):
     obs_space = {'observation': self._env.observation_space, 'image': gym.spaces.Box(
-        0, 255, self._size + (3,), dtype=np.uint8)}
+        0, 255, (self._size, self._size) + (3,), dtype=np.uint8)}
     return obs_space
 
   @property

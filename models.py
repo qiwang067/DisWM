@@ -1,7 +1,5 @@
 from time import process_time_ns
-
 import torch
-# from caffe2.python.fakelowp.test_utils import print_net
 from numpy.ma.core import shape
 from numpy.testing.print_coercion_tables import print_new_cast_table
 from torch import nn
@@ -9,11 +7,9 @@ import numpy as np
 from PIL import ImageColor, Image, ImageDraw, ImageFont
 from torch.autograd import Variable
 from torch.fx.experimental.migrate_gradual_types.operation import op_neq
-
 import networks
 import tools
 to_np = lambda x: x.detach().cpu().numpy()
-
 import beta_vae
 import torch.nn.functional as F
 import wandb
@@ -50,18 +46,12 @@ class WorldModel(nn.Module):
         embed_size *= 2 * 2
       else:
         raise NotImplemented(f"{config.size} is not applicable now")
+
+      # DisWM pretrain beta-VAE encoder network
       if self.distillation:
         self.encoder_distillation = networks.ConvEncoder(config.grayscale,
                                           config.cnn_depth, config.act, config.encoder_kernels)
-    if self.distillation:
-      import pretrain_networks
-      self.dynamics_af_distillation = pretrain_networks.RSSM(
-        config.dyn_stoch, config.dyn_deter, config.dyn_hidden,
-        config.dyn_input_layers, config.dyn_output_layers,
-        config.dyn_rec_depth, config.dyn_shared, config.dyn_discrete,
-        config.act, config.dyn_mean_act, config.dyn_std_act,
-        config.dyn_temp_post, config.dyn_min_std, config.dyn_cell,
-        config.num_actions, embed_size, config.device)
+
 
     if self.fine_tune:
       num_actions = config.source_action_num
@@ -101,7 +91,7 @@ class WorldModel(nn.Module):
           config.num_actions, embed_size, config.device)
     self.heads = nn.ModuleDict()
     channels = (1 if config.grayscale else 3)
-    shape = (channels,) + config.size       # (3, 64, 64)
+    shape = (channels,) + config.size
     if config.dyn_discrete:
       feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter
     else:
@@ -123,7 +113,6 @@ class WorldModel(nn.Module):
     for name in config.grad_heads:
       assert name in self.heads, name
     if config.distillation:
-      self.dynamics_af_distillation.requires_grad_(False)
       self.encoder_distillation.requires_grad_(False)
     self._model_opt = tools.Optimizer(
         'model', self.parameters(), config.model_lr, config.opt_eps, config.grad_clip,
@@ -133,6 +122,7 @@ class WorldModel(nn.Module):
     self._scales = dict(
         reward=config.reward_scale, discount=config.discount_scale)
 
+    # the beta value of beta-VAE
     self.beta = config.beta_vae_beta
 
     if config.intr_beta != 0 and config.fine_tune:
@@ -185,15 +175,16 @@ class WorldModel(nn.Module):
         if self.fine_tune:
           kl_loss_af, kl_value_af = self.dynamics.kl_loss(
             post_af, prior_af, self._config.kl_forward, kl_balance, kl_free, kl_scale)
+        
+
         if self.distillation:
           kl_loss_dis = self.kl_loss_distillation(embed, embed_dis)
 
-        ## apv-finetune intrinsic reward
         if self.naive_fine_tune:
           feat = self.dynamics_af.get_feat(post)
         else:
           feat = self.dynamics.get_feat(post)
-
+        ## apv-finetune intrinsic reward
         if self.fine_tune:
           plain_reward = data["reward"]
           if self._config.intr_beta != 0:
@@ -211,7 +202,10 @@ class WorldModel(nn.Module):
           pred = head(inp)
           like = pred.log_prob(data[name])
           likes[name] = like
+
+          # compute KL loss
           if name == 'image' and self.beta_vae:
+            # add beta-VAE KL loss for DisWM
             losses[name] = -torch.mean(like) * self._scales.get(name, 1.0) + self.beta * total_b_vae_kld
           else:
             losses[name] = -torch.mean(like) * self._scales.get(name, 1.0)
@@ -219,10 +213,10 @@ class WorldModel(nn.Module):
         if self.fine_tune:
           model_loss = sum(losses.values()) + kl_loss + kl_loss_af
         elif self.distillation:
-          if self._config.cross_domain:
+          if self._config.cross_domain:   # We use this trick for cross-domain tasks (eg. dmc_walker_walk -> mujoco_pusher-v5), excessive distillation loss leads to gradient explosion.  
             if self._step >= 50000:
-              eta = max(1 - self._step +  50000 / 100000, 0.1) * 0.1
-              model_loss = sum(losses.values()) + kl_loss + eta * kl_loss_dis
+              eta = max(2 - self._step / 50000, 0.1) * 0.1  # eta: eta value for distillation loss.
+              model_loss = sum(losses.values()) + kl_loss + eta * kl_loss_dis 
             else:
               model_loss = sum(losses.values()) + kl_loss
           else:
@@ -239,23 +233,16 @@ class WorldModel(nn.Module):
     metrics['kl_free'] = kl_free
     metrics['kl_scale'] = kl_scale
     if self.beta_vae:
-      wandb.log({'beta_vae_kl_loss': to_np(total_b_vae_kld)})
       metrics['beta_vae_kl_loss'] = to_np(total_b_vae_kld)
     if self.fine_tune:
-      wandb.log({'action_free_kl_loss': to_np(kl_loss_af)})
       metrics['action_free_kl_loss'] = to_np(kl_loss_af)
     if self.distillation:
-      wandb.log({'distillation_kl_loss': to_np(kl_loss_dis)})
       metrics['distillation_kl_loss'] = to_np(kl_loss_dis)
     metrics['kl'] = to_np(torch.mean(kl_value))
-    wandb.log({'kl': to_np(torch.mean(kl_value))})
     if self.naive_fine_tune:
       with torch.cuda.amp.autocast(self._use_amp):
         metrics['prior_ent'] = to_np(torch.mean(self.dynamics_af.get_dist(prior).entropy()))
         metrics['post_ent'] = to_np(torch.mean(self.dynamics_af.get_dist(post).entropy()))
-        wandb.log({'prior_ent': to_np(torch.mean(self.dynamics_af.get_dist(prior).entropy())),
-                   'post_ent': to_np(torch.mean(self.dynamics_af.get_dist(post).entropy()))
-                   })
         context = dict(
           embed=embed, feat=self.dynamics_af.get_feat(post),
           kl=kl_value, postent=self.dynamics_af.get_dist(post).entropy())
@@ -263,9 +250,6 @@ class WorldModel(nn.Module):
       with torch.cuda.amp.autocast(self._use_amp):
         metrics['prior_ent'] = to_np(torch.mean(self.dynamics.get_dist(prior).entropy()))
         metrics['post_ent'] = to_np(torch.mean(self.dynamics.get_dist(post).entropy()))
-        wandb.log({'prior_ent': to_np(torch.mean(self.dynamics.get_dist(prior).entropy())),
-                   'post_ent': to_np(torch.mean(self.dynamics.get_dist(post).entropy()))
-                   })
         context = dict(
             embed=embed, feat=self.dynamics.get_feat(post),
             kl=kl_value, postent=self.dynamics.get_dist(post).entropy())
@@ -325,17 +309,20 @@ class WorldModel(nn.Module):
     error = (model - truth + 1) / 2
     return torch.cat([truth, model, error], 2)
 
+  # Reparameterize function. 
   def reparameterize(self, mu, logvar):
     std = logvar.div(2).exp()
     eps = Variable(std.data.new(std.size()).normal_())
     return mu + eps * std
 
+  # Distillation kl loss function.
   def kl_loss_distillation(self, embed, embed_distillation):
     embed = torch.nn.functional.log_softmax(embed, dim=-1)
     embed_distillation = torch.nn.functional.softmax(embed_distillation, dim=-1)
     loss = F.kl_div(embed, embed_distillation, reduction='batchmean')
     return loss
 
+  # Beta-VAE KL loss function.
   def kl_divergence(self, mu, logvar):
     batch_size = mu.size(0)
     assert batch_size != 0
@@ -362,7 +349,9 @@ class WorldModel(nn.Module):
     else:
       recon_loss = None
     return recon_loss
+  
 
+  # Beta-VAE traversal function.
   def traverse(self, data, limit=9, inter=3, loc=-1):
     data = self.preprocess(data)
     mu, logvar, embed = self.encoder(data, pred=True)
