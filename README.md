@@ -55,13 +55,13 @@
   </tr>
   <tr>
     <td>
-      <img src="assets/diswm_human.gif" width="320">
+      <img src="assets/diswm_human.gif" width="240">
     </td>
     <td>
-      <img src="assets/tdmpc2_human.gif" width="320">
+      <img src="assets/tdmpc2_human.gif" width="240">
     </td>
     <td>
-      <img src="assets/contextwm_human.gif" width="320">
+      <img src="assets/contextwm_human.gif" width="240">
     </td>
   </tr>
   </table>
@@ -74,13 +74,13 @@
   </tr>
     <tr>
     <td>
-      <img src="assets/diswm_drawerworld.gif" width="320">
+      <img src="assets/diswm_drawerworld.gif" width="240">
     </td>
     <td>
-      <img src="assets/tdmpc2_drawerworld.gif" width="320">
+      <img src="assets/tdmpc2_drawerworld.gif" width="240">
     </td>
     <td>
-      <img src="assets/contextwm_drawerworld.gif" width="320">
+      <img src="assets/contextwm_drawerworld.gif" width="240">
     </td>
   </tr>
 </table>
