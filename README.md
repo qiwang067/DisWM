@@ -23,7 +23,7 @@
     Wenjun Zeng
   </p>
 
-<h3 align="center"> <a href="https://huggingface.co/datasets/MrSC320/DisWM-Pretrain-Datasets" target="_blank"> <img src='https://img.shields.io/badge/Datasets-Hugging%20Face-yellow?style=flat&logo=Hugging%20Face' alt='Datasets'> </a> &nbsp;&nbsp; |&nbsp;&nbsp;   <a href="https://arxiv.org/pdf/2503.08751" target="_blank"> <img src='https://img.shields.io/badge/Paper-PDF-red?style=flat&logo=arXiv&logoColor=red' alt='Paper PDF'> </a> &nbsp;&nbsp; | &nbsp;&nbsp; <a href="https://qiwang067.github.io/diswm" target="_blank"> <img src='https://img.shields.io/badge/Project-Page-blue?style=flat&logo=Google%20chrome&logoColor=blue' alt='Project Page'> </a> &nbsp;&nbsp; </h3>
+<h3 align="center"> <a href="https://huggingface.co/datasets/MrSC320/DisWM-Pretrain-Datasets" target="_blank"> <img src='https://img.shields.io/badge/Datasets-Hugging%20Face-yellow?style=flat&logo=Hugging%20Face' alt='Datasets'> </a> &nbsp;   <a href="https://arxiv.org/pdf/2503.08751" target="_blank"> <img src='https://img.shields.io/badge/Paper-PDF-red?style=flat&logo=arXiv&logoColor=red' alt='Paper PDF'> </a> &nbsp; <a href="https://qiwang067.github.io/diswm" target="_blank"> <img src='https://img.shields.io/badge/Project-Page-blue?style=flat&logo=Google%20chrome&logoColor=blue' alt='Project Page'> </a> &nbsp; <img alt="Visitors" src="https://visitor-badge.laobi.icu/badge?page_id=qiwang067.DisWM&left_color=green&right_color=red"></h3>
   <div align="center"></div>
 <p align="center">
   <a href="#quick-start"><b>⚡ Quick Start</b></a> |
