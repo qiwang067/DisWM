@@ -10,7 +10,7 @@
     ·
     Baao Xie*
     ·
-    Xin Jin†
+    Xin Jin
     ·
     Yunbo Wang
     ·
